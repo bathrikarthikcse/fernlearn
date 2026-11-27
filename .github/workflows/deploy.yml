@@ -1,0 +1,50 @@
+name: Deploy FernLearn
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Prepare public website
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          mkdir -p _site
+          cp index.html account.js library.js _site/
+          touch _site/.nojekyll
+          python3 - <<'PY'
+          import os, json, re
+          from pathlib import Path
+          url = os.environ.get('SUPABASE_URL', '').strip().rstrip('/')
+          key = os.environ.get('SUPABASE_PUBLISHABLE_KEY', '').strip()
+          if not re.fullmatch(r'https://[a-z0-9-]+\.supabase\.co', url):
+              raise SystemExit('Set SUPABASE_URL to the HTTPS project URL.')
+          if not key.startswith('sb_publishable_'):
+              raise SystemExit('Use the publishable key only, never a secret or service role key.')
+          cfg = {'url': url, 'publishableKey': key}
+          Path('_site/supabase-config.js').write_text('window.FERNLEARN_CONFIG = '+json.dumps(cfg)+';\nwindow.FERNLEARN_CONTACT = "campusfern.support@gmail.com";\n')
+          PY
+          node --check _site/account.js
+          node --check _site/library.js
+          node --check _site/supabase-config.js
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Deploy FernLearn
+        id: deployment
+        uses: actions/deploy-pages@v4
